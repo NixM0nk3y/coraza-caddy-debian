@@ -38,7 +38,7 @@ RUN go install -v github.com/caddyserver/xcaddy/cmd/xcaddy@latest \
 RUN cd /tmp \
     && mkdir -p /install/var/www/html \
     && install -D -m 0755 /tmp/caddy /install/usr/bin/caddy \
-    && fpm -s dir -t deb -C /install --name coraza-caddy --version ${CADDY_VERSION} --iteration 4 --depends "libpcre32-3" \
+    && fpm -s dir -t deb -C /install --name coraza-caddy --version ${CADDY_VERSION} --iteration 1  \
        --description "Caddy HTTP server with the coraza plugin built in"
 
 STOPSIGNAL SIGTERM
