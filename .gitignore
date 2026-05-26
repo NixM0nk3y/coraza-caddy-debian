@@ -9,3 +9,6 @@
 /*.upload
 /*.git
 /libnginx-mod-http-modsecurity-*
+
+# multi-arch build output
+/packages/

@@ -28,15 +28,28 @@ SHELL=/bin/bash
 DOCKER_BUILD_CONTEXT=.
 DOCKER_FILE_PATH=Dockerfile
 
+# Multi-arch build (buildx). ARCHES is space-separated; each is built with
+# `--load` so the .deb can be extracted locally, then published as one
+# manifest list on push.
+ARCHES ?= amd64 arm64
+BUILDX_BUILDER ?= oe-multiarch
+
 .PHONY: pre-build docker-build post-build build release patch-release minor-release major-release tag check-status check-release showver \
-	push pre-push do-push post-push
+	push pre-push do-push post-push buildx-setup
 
 build: pre-build docker-build post-build
 
-pre-build:
+pre-build: buildx-setup
+
+# Ensure a docker-container buildx builder + cross-arch emulation (binfmt)
+# exist, so e.g. an arm64 host can build the amd64 image and vice-versa.
+buildx-setup:
+	@docker buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || \
+		docker buildx create --name $(BUILDX_BUILDER) --driver docker-container --bootstrap
+	@docker run --privileged --rm tonistiigi/binfmt --install all >/dev/null 2>&1 || true
 
 post-build:
-	./extractdeb.sh
+	@IMAGE=$(IMAGE) VERSION=$(VERSION) ARCHES="$(ARCHES)" ./extractdeb.sh
 
 pre-push:
 
@@ -45,17 +58,14 @@ post-push:
 
 
 
-docker-build: .release
-	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE):$(VERSION) $(DOCKER_BUILD_CONTEXT) -f $(DOCKER_FILE_PATH)
-	@DOCKER_MAJOR=$(shell docker -v | sed -e 's/.*version //' -e 's/,.*//' | cut -d\. -f1) ; \
-	DOCKER_MINOR=$(shell docker -v | sed -e 's/.*version //' -e 's/,.*//' | cut -d\. -f2) ; \
-	if [ $$DOCKER_MAJOR -eq 1 ] && [ $$DOCKER_MINOR -lt 10 ] ; then \
-		echo docker tag -f $(IMAGE):$(VERSION) $(IMAGE):latest ;\
-		docker tag -f $(IMAGE):$(VERSION) $(IMAGE):latest ;\
-	else \
-		echo docker tag $(IMAGE):$(VERSION) $(IMAGE):latest ;\
-		docker tag $(IMAGE):$(VERSION) $(IMAGE):latest ; \
-	fi
+docker-build: .release buildx-setup
+	@for arch in $(ARCHES); do \
+		echo "==> buildx build linux/$$arch"; \
+		docker buildx build --builder $(BUILDX_BUILDER) $(DOCKER_BUILD_ARGS) \
+			--platform linux/$$arch --load \
+			-t $(IMAGE):$(VERSION)-$$arch -t $(IMAGE):latest-$$arch \
+			$(DOCKER_BUILD_CONTEXT) -f $(DOCKER_FILE_PATH) || exit 1; \
+	done
 
 .release:
 	@echo "release=0.0.0" > .release
@@ -69,9 +79,17 @@ release: check-status check-release build push
 
 push: pre-push do-push post-push 
 
-do-push: 
-	docker push $(IMAGE):$(VERSION)
-	docker push $(IMAGE):latest
+do-push:
+	@for arch in $(ARCHES); do \
+		docker push $(IMAGE):$(VERSION)-$$arch; \
+		docker push $(IMAGE):latest-$$arch; \
+	done
+	docker manifest rm $(IMAGE):$(VERSION) 2>/dev/null || true
+	docker manifest create $(IMAGE):$(VERSION) $(foreach a,$(ARCHES),$(IMAGE):$(VERSION)-$(a))
+	docker manifest push $(IMAGE):$(VERSION)
+	docker manifest rm $(IMAGE):latest 2>/dev/null || true
+	docker manifest create $(IMAGE):latest $(foreach a,$(ARCHES),$(IMAGE):latest-$(a))
+	docker manifest push $(IMAGE):latest
 
 snapshot: build push
 
