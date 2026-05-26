@@ -4,7 +4,7 @@
 # Driven by the Makefile (post-build), which exports IMAGE/VERSION/ARCHES.
 # Each arch was built+loaded as $IMAGE:$VERSION-<arch> by `make docker-build`.
 
-: "${IMAGE:?set IMAGE (e.g. docker.io/nixm0nk3y/coraza-caddy-debian-arm)}"
+: "${IMAGE:?set IMAGE (e.g. docker.io/nixm0nk3y/coraza-caddy-debian)}"
 : "${VERSION:?set VERSION}"
 : "${ARCHES:=amd64 arm64}"
 
